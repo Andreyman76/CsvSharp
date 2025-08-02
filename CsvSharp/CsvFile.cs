@@ -1,36 +1,17 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using CsvSharp.Storages;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace CsvSharp;
 
-public class CsvFileOptions : IFormatProvider
+public class CsvFile : IParsable<CsvFile>, IDisposable
 {
-    public bool HasHeader { get; init; } = false;
-    public string ColumnSeparator { get; init; } = ";";
-    public string Wrapper { get; init; } = "\"";
-
-    public static CsvFileOptions Default { get; } = new CsvFileOptions();
-
-    public object? GetFormat(Type? formatType)
-    {
-        if (formatType == typeof(CsvFileOptions))
-        {
-            return this;
-        }
-
-        return null;
-    }
-}
-
-public class CsvFile : IParsable<CsvFile>
-{
-    private readonly List<List<string>> _data = [];
+    private readonly ICsvStorage _storage = new DenseCsvStorage();
     private List<string> _header;
-    private int _maxColumnIndex;
 
-    public int Rows => _data.Count;
-    public int Columns => _maxColumnIndex > 0 ? _maxColumnIndex + 1 : 0;
+    public int Rows => _storage.Rows;
+    public int Columns => _storage.Columns;
 
     public CsvFile(List<string> header)
     {
@@ -85,12 +66,41 @@ public class CsvFile : IParsable<CsvFile>
     {
         if (options.HasHeader)
         {
-            WriteRow(writer, _header, options);
+            for (int column = 0; column < _header.Count; column++)
+            {
+                if (column > 0)
+                {
+                    writer.Write(options.ColumnSeparator);
+                }
+
+                writer.Write(FormatCsvString(_header[column], options));
+            }
+
+            var count = _storage.Columns - _header.Count;
+
+            for (int i = 0; i < count; i++)
+            {
+                writer.Write(options.ColumnSeparator);
+            }
+
+            writer.WriteLine();
         }
 
-        foreach (var row in _data)
+
+        for (int row = 0; row < _storage.Rows; row++)
         {
-            WriteRow(writer, row, options);
+            for (int column = 0; column < _storage.Columns; column++)
+            {
+                if (column > 0)
+                {
+                    writer.Write(options.ColumnSeparator);
+                }
+
+                var cell = _storage.Get(row, column);
+                writer.Write(FormatCsvString(cell, options));
+            }
+
+            writer.WriteLine();
         }
 
         writer.Flush();
@@ -158,8 +168,6 @@ public class CsvFile : IParsable<CsvFile>
         {
             var row = ParseCsvRow(line, options);
 
-            result._maxColumnIndex = Math.Max(result._maxColumnIndex, row.Count - 1);
-
             if (isFirstLine && options.HasHeader)
             {
                 result._header = row;
@@ -167,12 +175,22 @@ public class CsvFile : IParsable<CsvFile>
                 continue;
             }
 
-            result._data.Add(row);
+            result.AddRowToStorage(row);
 
             isFirstLine = false;
         }
 
         return result;
+    }
+
+    private void AddRowToStorage(List<string> row)
+    {
+        var rowIndex = _storage.Rows;
+
+        for (int i = 0; i < row.Count; i++)
+        {
+            _storage.Set(rowIndex, i, row[i]);
+        }
     }
 
     #endregion
@@ -188,7 +206,7 @@ public class CsvFile : IParsable<CsvFile>
 
         using var reader = new StringReader(str);
 
-        return Load(reader, options);
+        return LoadFromReader(reader, options);
     }
 
     public static bool TryParse(
@@ -200,9 +218,7 @@ public class CsvFile : IParsable<CsvFile>
 
         try
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(str, nameof(str));
-
-            result = Parse(str, provider);
+            result = Parse(str ?? string.Empty, provider);
             return true;
         }
         catch
@@ -230,7 +246,7 @@ public class CsvFile : IParsable<CsvFile>
 
     #region Get/set cells
 
-    public string this[int row, string column]
+    public string? this[int row, string column]
     {
         get
         {
@@ -257,59 +273,24 @@ public class CsvFile : IParsable<CsvFile>
         }
     }
 
-    public string this[int row, int column]
+    public string? this[int row, int column]
     {
-        get
-        {
-            if(row >= Rows || column >= _data[row].Count)
-            {
-                return string.Empty;
-            }
-
-            return _data[row][column];
-        }
+        get => _storage.Get(row, column);
         set
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(row, nameof(row));
-            ArgumentOutOfRangeException.ThrowIfNegative(column, nameof(column));
-
-            while (_data.Count - 1 < row)
-            {
-                _data.Add([]);
-            }
-
-            while (_data[row].Count - 1 < column)
-            {
-                _data[row].Add(string.Empty);
-            }
-
-            _data[row][column] = value;
-            _maxColumnIndex = Math.Max(_maxColumnIndex, column);
+            _storage.Set(row, column, value);
         }
     }
 
     #endregion
 
-    private void WriteRow(TextWriter writer, List<string> row, CsvFileOptions options)
+    private static string? FormatCsvString(string? str, CsvFileOptions options)
     {
-        for (int columnIndex = 0; columnIndex <= _maxColumnIndex; columnIndex++)
+        if (string.IsNullOrEmpty(str))
         {
-            if (row.Count > columnIndex)
-            {
-                writer.Write(FormatCsvString(row[columnIndex], options));
-            }
-
-            if (columnIndex < _maxColumnIndex)
-            {
-                writer.Write(options.ColumnSeparator);
-            }
+            return null;
         }
 
-        writer.WriteLine();
-    }
-
-    private static string FormatCsvString(string str, CsvFileOptions options)
-    {
         var w = options.Wrapper;
 
         if (str.Contains(options.ColumnSeparator)
@@ -367,7 +348,7 @@ public class CsvFile : IParsable<CsvFile>
     {
         var result = new List<string>();
         var sb = new StringBuilder();
-        bool inQuotes = false;
+        var inQuotes = false;
         int i = 0;
         var wrapper = options.Wrapper;
         var separator = options.ColumnSeparator;
@@ -380,7 +361,6 @@ public class CsvFile : IParsable<CsvFile>
             {
                 if (inQuotes)
                 {
-                    // Возможен экранированный символ кавычки (двойной)
                     if (i + 1 < line.Length && line[i + 1] == wrapper[0])
                     {
                         sb.Append(wrapper[0]);
@@ -388,14 +368,13 @@ public class CsvFile : IParsable<CsvFile>
                     }
                     else
                     {
-                        // Закрытие кавычек
+
                         inQuotes = false;
                         i++;
                     }
                 }
                 else
                 {
-                    // Начало кавычек
                     inQuotes = true;
                     i++;
                 }
@@ -414,6 +393,7 @@ public class CsvFile : IParsable<CsvFile>
         }
 
         result.Add(sb.ToString());
+
         return result;
     }
 
@@ -433,5 +413,13 @@ public class CsvFile : IParsable<CsvFile>
         }
 
         return true;
+    }
+
+    public void Dispose()
+    {
+        if (_storage is IDisposable disposable)
+        {
+            disposable.Dispose();
+        }
     }
 }
