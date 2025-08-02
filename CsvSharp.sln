@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36327.8
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CsvSharp", "CsvSharp\CsvSharp.csproj", "{8739130F-BF91-4ED6-A2BB-F734E1E8AA4E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CsvSharp.Tests", "CsvSharp.Tests\CsvSharp.Tests.csproj", "{C4B2E708-208A-4B22-8E88-9519C9F43797}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8739130F-BF91-4ED6-A2BB-F734E1E8AA4E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8739130F-BF91-4ED6-A2BB-F734E1E8AA4E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8739130F-BF91-4ED6-A2BB-F734E1E8AA4E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8739130F-BF91-4ED6-A2BB-F734E1E8AA4E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4B2E708-208A-4B22-8E88-9519C9F43797}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4B2E708-208A-4B22-8E88-9519C9F43797}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4B2E708-208A-4B22-8E88-9519C9F43797}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4B2E708-208A-4B22-8E88-9519C9F43797}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {69CD388D-3B3F-4FB9-9B00-B7A0BA14C734}
+	EndGlobalSection
+EndGlobal
