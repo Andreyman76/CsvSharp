@@ -6,7 +6,6 @@ namespace CsvSharp.Storages;
 internal class DenseCsvStorage : ICsvStorage, IDisposable
 {
     public int Rows { get; private set; }
-
     public int Columns { get; private set; }
 
     public float Density
@@ -30,7 +29,7 @@ internal class DenseCsvStorage : ICsvStorage, IDisposable
     private int _arrayColumns;
     private int _notEmptyCells;
 
-    public DenseCsvStorage(int rows = 1, int columns = 1)
+    public DenseCsvStorage(int rows = 100, int columns = 10)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(rows, nameof(rows));
         ArgumentOutOfRangeException.ThrowIfNegative(columns, nameof(columns));

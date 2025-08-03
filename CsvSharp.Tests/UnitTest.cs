@@ -46,9 +46,10 @@ public class UnitTest
         csv.Save(writer, _options);
         var actual = writer.ToString();
 
-        Assert.Equal(expected, actual);
         Assert.Equal(2, csv.Rows);
         Assert.Equal(2, csv.Columns);
+
+        Assert.Equal(expected, actual);
     }
 
     [Fact]
@@ -87,15 +88,19 @@ public class UnitTest
         csv.Save(writer, _options);
         var actual = writer.ToString();
 
-        Assert.Equal(_strangeCsv, actual);
         Assert.Equal(11, csv.Rows);
         Assert.Equal(3, csv.Columns);
+
+        Assert.Equal(_strangeCsv, actual);
     }
 
     [Fact]
     public void ParseStrangeCsv()
     {
         using var csv = CsvFile.Parse(_strangeCsv, _options);
+
+        Assert.Equal(11, csv.Rows);
+        Assert.Equal(3, csv.Columns);
 
         Assert.Equal("Apple", csv[0, 0]);
         Assert.Equal("5", csv[0, 1]);
@@ -115,9 +120,6 @@ public class UnitTest
         Assert.Equal("___", csv[8, 0]);
         Assert.Null(csv[9, 0]);
         Assert.Equal("\" ;\"\";;\" \",;, \"", csv[10, 0]);
-
-        Assert.Equal(11, csv.Rows);
-        Assert.Equal(3, csv.Columns);
     }
 
     [Fact]
@@ -129,10 +131,10 @@ public class UnitTest
         csv.Save(writer, _options);
         var actual = writer.ToString();
 
-        Assert.Equal(_strangeCsv, actual);
-
         Assert.Equal(11, csv.Rows);
         Assert.Equal(3, csv.Columns);
+
+        Assert.Equal(_strangeCsv, actual);
     }
 
     [Fact]
@@ -149,15 +151,15 @@ public class UnitTest
         using var stream = new MemoryStream(bytes);
         using var csv = CsvFile.Load(stream, encoding: Encoding.UTF32);
 
+        Assert.Equal(3, csv.Rows);
+        Assert.Equal(2, csv.Columns);
+
         Assert.Equal("Имя", csv[0, 0]);
         Assert.Equal("Возраст", csv[0, 1]);
         Assert.Equal("Иван", csv[1, 0]);
         Assert.Equal("25", csv[1, 1]);
         Assert.Equal("Мария", csv[2, 0]);
         Assert.Equal("30", csv[2, 1]);
-
-        Assert.Equal(3, csv.Rows);
-        Assert.Equal(2, csv.Columns);
     }
 
     [Fact]
@@ -172,16 +174,20 @@ public class UnitTest
         csv.Save(stream, encoding: Encoding.UTF32);
 
         var result = Encoding.UTF32.GetString(stream.ToArray());
-        Assert.Contains("Иван", result);
 
         Assert.Equal(1, csv.Rows);
         Assert.Equal(2, csv.Columns);
+
+        Assert.StartsWith("Иван", result);
     }
 
     [Fact]
     public void ParseEmptyCsv()
     {
         using var csv = CsvFile.Parse(string.Empty, _options);
+
+        Assert.Equal(0, csv.Rows);
+        Assert.Equal(0, csv.Columns);
 
         Assert.Empty(csv.AsString());
 
@@ -204,6 +210,9 @@ public class UnitTest
 
         var csv = CsvFile.Parse(text, options);
 
+        Assert.Equal(2, csv.Rows);
+        Assert.Equal(3, csv.Columns);
+
         Assert.Equal("1", csv[0, 0]);
         Assert.Equal("5", csv[1, 1]);
     }
@@ -217,6 +226,9 @@ public class UnitTest
         var column = 50;
 
         csv[row, column] = "end";
+
+        Assert.Equal(101, csv.Rows);
+        Assert.Equal(51, csv.Columns);
 
         for (int r = 0; r < row; r++)
         {
@@ -245,6 +257,9 @@ public class UnitTest
 
         using var csv = CsvFile.Parse(text, _options);
 
+        Assert.Equal(2, csv.Rows);
+        Assert.Equal(3, csv.Columns);
+
         Assert.Equal("1", csv[0, 0]);
         Assert.Null(csv[0, 1]);
         Assert.Null(csv[1, 0]);
@@ -262,6 +277,9 @@ public class UnitTest
 
         using var csv = CsvFile.Parse(text, _options);
 
+        Assert.Equal(1, csv.Rows);
+        Assert.Equal(2, csv.Columns);
+
         Assert.Equal("Alice", csv[0, "Name"]);
         Assert.Equal("30", csv[0, "Age"]);
     }
@@ -276,6 +294,9 @@ public class UnitTest
             """;
 
         using var csv = CsvFile.Parse(text, _options);
+
+        Assert.Equal(2, csv.Rows);
+        Assert.Equal(4, csv.Columns);
 
         Assert.Equal("1", csv[0, 0]);
         Assert.Null(csv[0, 2]);
@@ -294,6 +315,13 @@ public class UnitTest
         var text = writer.ToString();
 
         using var reloaded = CsvFile.Parse(text, _options);
+
+        Assert.Equal(1, original.Rows);
+        Assert.Equal(2, original.Columns);
+
+        Assert.Equal(1, reloaded.Rows);
+        Assert.Equal(2, reloaded.Columns);
+
         Assert.Equal("Hello", reloaded[0, "X"]);
         Assert.Equal("World", reloaded[0, "Y"]);
     }
@@ -308,6 +336,75 @@ public class UnitTest
         csv.Save(writer, _options);
 
         using var result = CsvFile.Parse(writer.ToString(), _options);
+
+        Assert.Equal(1, csv.Rows);
+        Assert.Equal(1, csv.Columns);
+
+        Assert.Equal(1, result.Rows);
+        Assert.Equal(1, result.Columns);
+
         Assert.Equal(csv[0, 0], result[0, 0]);
+    }
+
+    [Fact]
+    public void ParseSpecialCharactersPreservedCorrectly()
+    {
+        var text = "\"hello\nworld\";\"\"\"\";\"\"\"\"\"\"\r\n\";\";\"\"\";\";\";\"\"\"\";\"\r\n";
+
+        using var csv = CsvFile.Parse(text);
+
+        Assert.Equal("hello\nworld", csv[0, 0]);
+        Assert.Equal("\"", csv[0, 1]);
+        Assert.Equal("\"\"", csv[0, 2]);
+        Assert.Equal(";", csv[1, 0]);
+        Assert.Equal("\";", csv[1, 1]);
+        Assert.Equal(";\"\";", csv[1, 2]);
+
+        Assert.Equal(2, csv.Rows);
+        Assert.Equal(3, csv.Columns);
+
+        Assert.Equal(text, csv.AsString());
+    }
+
+    [Fact]
+    public void ParseInvalidCsv()
+    {
+        var invalid = """
+            1;2;3
+            1
+            1;2
+            ;
+            """;
+
+        var valid = """
+            1;2;3
+            1;;
+            1;2;
+            ;;
+
+            """;
+
+        using var csv = CsvFile.Parse(invalid);
+
+        Assert.Equal(4, csv.Rows);
+        Assert.Equal(3, csv.Columns);
+
+        Assert.Equal("1", csv[0, 0]);
+        Assert.Equal("2", csv[0, 1]);
+        Assert.Equal("3", csv[0, 2]);
+
+        Assert.Equal("1", csv[1, 0]);
+        Assert.Null(csv[1, 1]);
+        Assert.Null(csv[1, 2]);
+
+        Assert.Equal("1", csv[2, 0]);
+        Assert.Equal("2", csv[2, 1]);
+        Assert.Null(csv[2, 2]);
+
+        Assert.Null(csv[3, 0]);
+        Assert.Null(csv[3, 1]);
+        Assert.Null(csv[3, 2]);
+
+        Assert.Equal(valid, csv.AsString());
     }
 }
