@@ -1,36 +1,23 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using CsvSharp.Storages;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace CsvSharp;
 
-public class CsvFileOptions : IFormatProvider
+public class CsvFile : IParsable<CsvFile>, IDisposable
 {
-    public bool HasHeader { get; init; } = false;
-    public string ColumnSeparator { get; init; } = ";";
-    public string Wrapper { get; init; } = "\"";
+    public float SwitchToSparseThreshold { get; set; } = 0.05f;
+    public float SwitchToDenseThreshold { get; set; } = 0.30f;
+    public int CheckDensityAfter { get; set; } = 100;
 
-    public static CsvFileOptions Default { get; } = new CsvFileOptions();
+    public int Rows => _storage.Rows;
+    public int Columns => _storage.Columns;
+    public bool IsDense { get; private set; } = true;
 
-    public object? GetFormat(Type? formatType)
-    {
-        if (formatType == typeof(CsvFileOptions))
-        {
-            return this;
-        }
-
-        return null;
-    }
-}
-
-public class CsvFile : IParsable<CsvFile>
-{
-    private readonly List<List<string>> _data = [];
-    private List<string> _header;
-    private int _maxColumnIndex;
-
-    public int Rows => _data.Count;
-    public int Columns => _maxColumnIndex > 0 ? _maxColumnIndex + 1 : 0;
+    private ICsvStorage _storage = new DenseCsvStorage();
+    private readonly List<string> _header;
+    private int _setsCounter;
 
     public CsvFile(List<string> header)
     {
@@ -85,12 +72,40 @@ public class CsvFile : IParsable<CsvFile>
     {
         if (options.HasHeader)
         {
-            WriteRow(writer, _header, options);
+            for (int column = 0; column < _header.Count; column++)
+            {
+                if (column > 0)
+                {
+                    writer.Write(options.ColumnSeparator);
+                }
+
+                writer.Write(FormatCsvString(_header[column], options));
+            }
+
+            var count = _storage.Columns - _header.Count;
+
+            for (int i = 0; i < count; i++)
+            {
+                writer.Write(options.ColumnSeparator);
+            }
+
+            writer.WriteLine();
         }
 
-        foreach (var row in _data)
+        for (int row = 0; row < _storage.Rows; row++)
         {
-            WriteRow(writer, row, options);
+            for (int column = 0; column < _storage.Columns; column++)
+            {
+                if (column > 0)
+                {
+                    writer.Write(options.ColumnSeparator);
+                }
+
+                var cell = _storage.Get(row, column);
+                writer.Write(FormatCsvString(cell, options));
+            }
+
+            writer.WriteLine();
         }
 
         writer.Flush();
@@ -151,25 +166,23 @@ public class CsvFile : IParsable<CsvFile>
     private static CsvFile LoadFromReader(TextReader reader, CsvFileOptions options)
     {
         var result = new CsvFile();
-        string? line;
-        var isFirstLine = true;
+        var parser = new CsvParser(reader.ReadToEnd(), options);
 
-        while ((line = ReadCsvLine(reader, options)) is not null)
+        while (parser.HasNext)
         {
-            var row = ParseCsvRow(line, options);
+            var cell = parser.Next();
 
-            result._maxColumnIndex = Math.Max(result._maxColumnIndex, row.Count - 1);
-
-            if (isFirstLine && options.HasHeader)
+            if (cell.Row == 0 && options.HasHeader)
             {
-                result._header = row;
-                isFirstLine = false;
+                result._header.Add(cell.Value.ToString());
                 continue;
             }
 
-            result._data.Add(row);
-
-            isFirstLine = false;
+            result._storage.Set(
+                options.HasHeader
+                    ? cell.Row - 1
+                    : cell.Row
+                , cell.Column, cell.Value.ToString());
         }
 
         return result;
@@ -178,6 +191,11 @@ public class CsvFile : IParsable<CsvFile>
     #endregion
 
     #region IParsable
+
+    public static CsvFile Parse(string str)
+    {
+        return Parse(str, CsvFileOptions.Default);
+    }
 
     public static CsvFile Parse(
        string str,
@@ -188,7 +206,14 @@ public class CsvFile : IParsable<CsvFile>
 
         using var reader = new StringReader(str);
 
-        return Load(reader, options);
+        return LoadFromReader(reader, options);
+    }
+
+    public static bool TryParse(
+       [NotNullWhen(true)] string? str,
+       [MaybeNullWhen(false)] out CsvFile result)
+    {
+        return TryParse(str, CsvFileOptions.Default, out result);
     }
 
     public static bool TryParse(
@@ -200,9 +225,7 @@ public class CsvFile : IParsable<CsvFile>
 
         try
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(str, nameof(str));
-
-            result = Parse(str, provider);
+            result = Parse(str ?? string.Empty, provider);
             return true;
         }
         catch
@@ -230,7 +253,7 @@ public class CsvFile : IParsable<CsvFile>
 
     #region Get/set cells
 
-    public string this[int row, string column]
+    public string? this[int row, string column]
     {
         get
         {
@@ -257,59 +280,52 @@ public class CsvFile : IParsable<CsvFile>
         }
     }
 
-    public string this[int row, int column]
+    public string? this[int row, int column]
     {
-        get
-        {
-            if(row >= Rows || column >= _data[row].Count)
-            {
-                return string.Empty;
-            }
-
-            return _data[row][column];
-        }
+        get => _storage.Get(row, column);
         set
         {
-            ArgumentOutOfRangeException.ThrowIfNegative(row, nameof(row));
-            ArgumentOutOfRangeException.ThrowIfNegative(column, nameof(column));
+            _storage.Set(row, column, value);
+            _setsCounter++;
 
-            while (_data.Count - 1 < row)
+            if (_setsCounter > CheckDensityAfter)
             {
-                _data.Add([]);
+                _setsCounter = 0;
+                ChangeStorageIfNeed();
             }
-
-            while (_data[row].Count - 1 < column)
-            {
-                _data[row].Add(string.Empty);
-            }
-
-            _data[row][column] = value;
-            _maxColumnIndex = Math.Max(_maxColumnIndex, column);
         }
     }
 
     #endregion
 
-    private void WriteRow(TextWriter writer, List<string> row, CsvFileOptions options)
+    private void ChangeStorageIfNeed()
     {
-        for (int columnIndex = 0; columnIndex <= _maxColumnIndex; columnIndex++)
+        if (_storage.Density < SwitchToSparseThreshold && IsDense)
         {
-            if (row.Count > columnIndex)
-            {
-                writer.Write(FormatCsvString(row[columnIndex], options));
-            }
+            var old = _storage;
 
-            if (columnIndex < _maxColumnIndex)
+            _storage = new SparseCsvStorage(_storage);
+            IsDense = false;
+
+            if (old is IDisposable disposable)
             {
-                writer.Write(options.ColumnSeparator);
+                disposable.Dispose();
             }
         }
-
-        writer.WriteLine();
+        else if (_storage.Density > SwitchToDenseThreshold && !IsDense)
+        {
+            _storage = new DenseCsvStorage(_storage);
+            IsDense = true;
+        }
     }
 
-    private static string FormatCsvString(string str, CsvFileOptions options)
+    private static string? FormatCsvString(string? str, CsvFileOptions options)
     {
+        if (string.IsNullOrEmpty(str))
+        {
+            return null;
+        }
+
         var w = options.Wrapper;
 
         if (str.Contains(options.ColumnSeparator)
@@ -317,121 +333,20 @@ public class CsvFile : IParsable<CsvFile>
             || str.Contains('\n')
             || str.Contains('\r'))
         {
-            return $"{w}{str.Replace(w, w + w)}{w}";
+
+            var doubledWrapper = $"{w}{w}";
+
+            return $"{w}{str.Replace(w.ToString(), doubledWrapper)}{w}";
         }
 
         return str;
     }
 
-    private static string? ReadCsvLine(TextReader reader, CsvFileOptions options)
+    public void Dispose()
     {
-        var line = reader.ReadLine();
-
-        if (line is null)
+        if (_storage is IDisposable disposable)
         {
-            return null;
+            disposable.Dispose();
         }
-
-        var sb = new StringBuilder(line);
-        var wrappersCount = GetWrappersCount(line, options.Wrapper);
-
-        while (wrappersCount % 2 != 0)
-        {
-            var nextLine = reader.ReadLine();
-
-            if (nextLine is null)
-            {
-                break;
-            }
-
-            sb.AppendLine();
-            sb.Append(nextLine);
-
-            wrappersCount += GetWrappersCount(nextLine, options.Wrapper);
-        }
-
-        return sb.ToString();
-    }
-
-    private static int GetWrappersCount(string str, string wrapper)
-    {
-        if (wrapper.Length == 1)
-        {
-            return str.Count(c => c == wrapper[0]);
-        }
-
-        return str.Split(wrapper).Length - 1;
-    }
-
-    private static List<string> ParseCsvRow(ReadOnlySpan<char> line, CsvFileOptions options)
-    {
-        var result = new List<string>();
-        var sb = new StringBuilder();
-        bool inQuotes = false;
-        int i = 0;
-        var wrapper = options.Wrapper;
-        var separator = options.ColumnSeparator;
-
-        while (i < line.Length)
-        {
-            char c = line[i];
-
-            if (c == wrapper[0])
-            {
-                if (inQuotes)
-                {
-                    // Возможен экранированный символ кавычки (двойной)
-                    if (i + 1 < line.Length && line[i + 1] == wrapper[0])
-                    {
-                        sb.Append(wrapper[0]);
-                        i += 2;
-                    }
-                    else
-                    {
-                        // Закрытие кавычек
-                        inQuotes = false;
-                        i++;
-                    }
-                }
-                else
-                {
-                    // Начало кавычек
-                    inQuotes = true;
-                    i++;
-                }
-            }
-            else if (!inQuotes && IsSeparatorAt(line, i, separator))
-            {
-                result.Add(sb.ToString());
-                sb.Clear();
-                i += separator.Length;
-            }
-            else
-            {
-                sb.Append(c);
-                i++;
-            }
-        }
-
-        result.Add(sb.ToString());
-        return result;
-    }
-
-    private static bool IsSeparatorAt(ReadOnlySpan<char> line, int index, string separator)
-    {
-        if (separator.Length + index > line.Length)
-        {
-            return false;
-        }
-
-        for (int j = 0; j < separator.Length; j++)
-        {
-            if (line[index + j] != separator[j])
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
