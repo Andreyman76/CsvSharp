@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System.Runtime.Intrinsics.Arm;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace CsvSharp.Tests;
 
@@ -406,5 +408,46 @@ public class UnitTest
         Assert.Null(csv[3, 2]);
 
         Assert.Equal(valid, csv.AsString());
+    }
+
+    [Fact]
+    public void ChangeStorageType()
+    {
+        using var csv = new CsvFile();
+        Assert.True(csv.IsDense);
+
+        for (int i = 0; i < 100; i++)
+        {
+            csv[i, 0] = i.ToString();
+        }
+
+        Assert.True(csv.IsDense);
+
+        for (int i = 0; i < 100; i++)
+        {
+            csv[i, 20] = i.ToString();
+        }
+
+        Assert.False(csv.IsDense);
+
+        for (int i = 0; i < 10_000; i++)
+        {
+            csv[i, 1] = i.ToString();
+            csv[i, 2] = i.ToString();
+            csv[i, 3] = i.ToString();
+            csv[i, 4] = i.ToString();
+            csv[i, 5] = i.ToString();
+        }
+
+        Assert.True(csv.IsDense);
+
+        using var sha = SHA256.Create();
+        using var ms = new MemoryStream();
+        using var writer = new StreamWriter(ms);
+        csv.Save(writer);
+        ms.Seek(0, SeekOrigin.Begin);
+        var hash = Convert.ToHexString(sha.ComputeHash(ms));
+
+        Assert.Equal("5ACC1D8E3B2DB3E5C4A3DAF7E9F187D367045D86A10C08C21C29E9CD034D12F1", hash);
     }
 }

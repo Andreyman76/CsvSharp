@@ -24,7 +24,6 @@ internal class DenseCsvStorage : ICsvStorage, IDisposable
     }
 
     private string?[] _data;
-
     private int _arrayRows;
     private int _arrayColumns;
     private int _notEmptyCells;
@@ -136,12 +135,12 @@ internal class DenseCsvStorage : ICsvStorage, IDisposable
                 }
             }
 
-            ArrayPool<string?>.Shared.Return(oldData, clearArray: true);
+            ArrayPool<string?>.Shared.Return(oldData);
         }
     }
 
     public void Dispose()
     {
-        ArrayPool<string?>.Shared.Return(_data, clearArray: true);
+        ArrayPool<string?>.Shared.Return(_data);
     }
 }

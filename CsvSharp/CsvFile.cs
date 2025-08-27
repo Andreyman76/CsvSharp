@@ -7,11 +7,17 @@ namespace CsvSharp;
 
 public class CsvFile : IParsable<CsvFile>, IDisposable
 {
-    private readonly ICsvStorage _storage = new DenseCsvStorage();
-    private readonly List<string> _header;
+    public float SwitchToSparseThreshold { get; set; } = 0.05f;
+    public float SwitchToDenseThreshold { get; set; } = 0.30f;
+    public int CheckDensityAfter { get; set; } = 100;
 
     public int Rows => _storage.Rows;
     public int Columns => _storage.Columns;
+    public bool IsDense { get; private set; } = true;
+
+    private ICsvStorage _storage = new DenseCsvStorage();
+    private readonly List<string> _header;
+    private int _setsCounter;
 
     public CsvFile(List<string> header)
     {
@@ -280,10 +286,38 @@ public class CsvFile : IParsable<CsvFile>, IDisposable
         set
         {
             _storage.Set(row, column, value);
+            _setsCounter++;
+
+            if (_setsCounter > CheckDensityAfter)
+            {
+                _setsCounter = 0;
+                ChangeStorageIfNeed();
+            }
         }
     }
 
     #endregion
+
+    private void ChangeStorageIfNeed()
+    {
+        if (_storage.Density < SwitchToSparseThreshold && IsDense)
+        {
+            var old = _storage;
+
+            _storage = new SparseCsvStorage(_storage);
+            IsDense = false;
+
+            if (old is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
+        else if (_storage.Density > SwitchToDenseThreshold && !IsDense)
+        {
+            _storage = new DenseCsvStorage(_storage);
+            IsDense = true;
+        }
+    }
 
     private static string? FormatCsvString(string? str, CsvFileOptions options)
     {
